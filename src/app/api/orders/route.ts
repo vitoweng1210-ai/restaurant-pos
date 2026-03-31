@@ -41,9 +41,12 @@ export async function POST(req: Request) {
 
     let targetOrderId = ''
     let newStatus = 'new'
+    let isAdditionalOrder = false
 
     if (existingOrder) {
       targetOrderId = existingOrder.id
+      isAdditionalOrder = true
+
       newStatus =
         existingOrder.status === 'ready' || existingOrder.status === 'served'
           ? 'new'
@@ -85,9 +88,10 @@ export async function POST(req: Request) {
       price: item.price,
     }))
 
-    const { error: itemsError } = await supabase
+    const { data: insertedItems, error: itemsError } = await supabase
       .from('order_items')
       .insert(payload)
+      .select('id')
 
     if (itemsError) {
       return NextResponse.json({ error: '建立訂單明細失敗' }, { status: 500 })
@@ -100,9 +104,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      order_id: targetOrderId,
+      id: targetOrderId,
+      item_ids: (insertedItems || []).map((item) => item.id),
+      is_additional_order: isAdditionalOrder,
     })
-  } catch {
+  } catch (error) {
+    console.error(error)
     return NextResponse.json({ error: '建立訂單失敗' }, { status: 500 })
   }
 }

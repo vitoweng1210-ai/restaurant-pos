@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from 'react'
 
 type PaymentMethod = 'cash' | 'card' | 'linepay'
 
+type ConfirmResult =
+  | void
+  | {
+      printOrderId?: string
+    }
+
 type Props = {
   open: boolean
   onClose: () => void
@@ -17,7 +23,7 @@ type Props = {
     total: number
     receivedAmount: number
     changeAmount: number
-  }) => Promise<void> | void
+  }) => Promise<ConfirmResult> | ConfirmResult
 }
 
 const QUICK_AMOUNTS = [100, 500, 1000]
@@ -32,11 +38,13 @@ export default function PaymentDrawer({
 }: Props) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash')
   const [inputValue, setInputValue] = useState('')
+  const [confirming, setConfirming] = useState(false)
 
   useEffect(() => {
     if (!open) {
       setPaymentMethod('cash')
       setInputValue('')
+      setConfirming(false)
     }
   }, [open])
 
@@ -46,7 +54,6 @@ export default function PaymentDrawer({
   }, [subtotal, serviceChargeEnabled])
 
   const total = subtotal + serviceCharge
-
   const receivedAmount = Number(inputValue || 0)
   const changeAmount = Math.max(receivedAmount - total, 0)
   const isEnough = paymentMethod !== 'cash' || receivedAmount >= total
@@ -71,7 +78,7 @@ export default function PaymentDrawer({
   }
 
   async function handleConfirm() {
-    if (total <= 0) return
+    if (total <= 0 || confirming) return
 
     const finalReceived =
       paymentMethod === 'cash' ? receivedAmount : total
@@ -86,14 +93,41 @@ export default function PaymentDrawer({
       return
     }
 
-    await onConfirm({
-      paymentMethod,
-      subtotal,
-      serviceCharge,
-      total,
-      receivedAmount: finalReceived,
-      changeAmount: finalChange,
-    })
+    let printWindow: Window | null = null
+
+    try {
+      setConfirming(true)
+
+      // 先同步開新分頁，避免被瀏覽器擋掉
+      printWindow = window.open('', '_blank')
+
+      const result = await onConfirm({
+        paymentMethod,
+        subtotal,
+        serviceCharge,
+        total,
+        receivedAmount: finalReceived,
+        changeAmount: finalChange,
+      })
+
+      if (result?.printOrderId) {
+        if (printWindow) {
+          printWindow.location.href = `/print/order/${result.printOrderId}`
+        } else {
+          window.open(`/print/order/${result.printOrderId}`, '_blank')
+        }
+      } else if (printWindow) {
+        printWindow.close()
+      }
+    } catch (error) {
+      if (printWindow) {
+        printWindow.close()
+      }
+      console.error(error)
+      alert('結帳失敗')
+    } finally {
+      setConfirming(false)
+    }
   }
 
   if (!open) return null
@@ -106,7 +140,8 @@ export default function PaymentDrawer({
             <h2 className="text-xl font-bold">結帳</h2>
             <button
               onClick={onClose}
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
+              disabled={confirming}
+              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50"
             >
               關閉
             </button>
@@ -215,17 +250,15 @@ export default function PaymentDrawer({
                     </div>
 
                     <div className="grid grid-cols-3 gap-2">
-                      {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(
-                        (n) => (
-                          <button
-                            key={n}
-                            onClick={() => appendNumber(n)}
-                            className="rounded-2xl border px-3 py-4 text-xl font-semibold hover:bg-gray-50"
-                          >
-                            {n}
-                          </button>
-                        )
-                      )}
+                      {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => appendNumber(n)}
+                          className="rounded-2xl border px-3 py-4 text-xl font-semibold hover:bg-gray-50"
+                        >
+                          {n}
+                        </button>
+                      ))}
 
                       <button
                         onClick={clearAll}
@@ -277,8 +310,7 @@ export default function PaymentDrawer({
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">實收</span>
                     <span className="font-medium">
-                      $
-                      {paymentMethod === 'cash' ? receivedAmount : total}
+                      ${paymentMethod === 'cash' ? receivedAmount : total}
                     </span>
                   </div>
 
@@ -294,10 +326,10 @@ export default function PaymentDrawer({
           <div className="border-t p-5">
             <button
               onClick={handleConfirm}
-              disabled={!isEnough || total <= 0}
+              disabled={!isEnough || total <= 0 || confirming}
               className="w-full rounded-2xl bg-black px-4 py-4 text-lg font-bold text-white disabled:cursor-not-allowed disabled:bg-gray-300"
             >
-              確認結帳
+              {confirming ? '結帳中...' : '確認結帳'}
             </button>
           </div>
         </div>

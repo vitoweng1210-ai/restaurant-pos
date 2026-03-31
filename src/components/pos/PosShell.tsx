@@ -103,7 +103,11 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       }
 
       setCategories(Array.isArray(categoriesData) ? categoriesData : [])
-      setMenu(Array.isArray(menuData) ? menuData.filter((x) => x.is_active !== false) : [])
+      setMenu(
+        Array.isArray(menuData)
+          ? menuData.filter((x) => x.is_active !== false)
+          : []
+      )
 
       initializedRef.current = true
     } catch (error) {
@@ -239,6 +243,19 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       }
 
       alert(currentOrder ? '加點成功' : '送單成功')
+
+      if (data?.id) {
+        const itemIds = Array.isArray(data.item_ids)
+          ? data.item_ids.join(',')
+          : ''
+
+        if (itemIds) {
+          window.open(`/print/kitchen/${data.id}?itemIds=${itemIds}`, '_blank')
+        } else {
+          window.open(`/print/kitchen/${data.id}`, '_blank')
+        }
+      }
+
       setCart([])
       await loadTablesOnly()
       await loadCurrentOrder(selectedTableId)
@@ -315,7 +332,15 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
         ? payload.receivedAmount
         : payload.total
 
+    const printOrderId = currentOrder?.id || undefined
+
     await payOrder(payload.paymentMethod, finalReceivedAmount)
+
+    if (printOrderId) {
+      return { printOrderId }
+    }
+
+    return {}
   }
 
   if (loading) {

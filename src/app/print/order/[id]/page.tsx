@@ -1,77 +1,195 @@
-import AutoPrint from '@/components/print/AutoPrint'
+import { createClient } from '@/lib/supabase/server'
 
-type Ticket = {
-  order_id: string
-  table_name: string
-  created_at: string
-  status: string
-  printable_lines: string[]
-}
-
-async function getTicket(id: string): Promise<Ticket | null> {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-
-  try {
-    const res = await fetch(`${baseUrl}/api/orders/${id}/ticket`, {
-      cache: 'no-store',
-    })
-
-    if (!res.ok) return null
-
-    const data = await res.json()
-    if (data?.error) return null
-
-    return data
-  } catch {
-    return null
-  }
-}
-
-export default async function Page({
+export default async function PrintOrderPage({
   params,
 }: {
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const ticket = await getTicket(id)
+  const supabase = await createClient()
 
-  if (!ticket) {
-    return (
-      <main className="flex min-h-screen items-center justify-center">
-        找不到訂單
-      </main>
-    )
-  }
+  const { data: order } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', id)
+    .single()
+
+  const { data: items } = await supabase
+    .from('order_items')
+    .select('*')
+    .eq('order_id', id)
+
+  const { data: menu } = await supabase.from('menu').select('*')
+
+  const itemsWithName =
+    items?.map((item: any) => {
+      const m = menu?.find((x: any) => x.id === item.menu_id)
+      return {
+        ...item,
+        name: m?.name || '未知商品',
+      }
+    }) || []
 
   return (
-    <main className="min-h-screen bg-neutral-200 p-4 print:bg-white print:p-0">
-      <AutoPrint />
+    <html>
+      <head>
+        <title>列印小票</title>
+        <style>{`
+          @page {
+            size: 80mm auto;
+            margin: 0;
+          }
 
-      <div className="mx-auto w-[302px] bg-white p-3 text-[12px] leading-5 shadow print:w-[80mm] print:shadow-none">
-        <div className="text-center text-[18px] font-bold">夜店 POS</div>
-        <div className="text-center text-[12px]">收據明細</div>
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: white;
+            font-family: monospace;
+            color: #000;
+          }
 
-        <div className="my-2 border-t border-dashed border-black" />
+          body {
+            width: 80mm;
+            box-sizing: border-box;
+            padding: 4mm;
+          }
 
-        <div>桌位：{ticket.table_name}</div>
-        <div className="break-all">訂單：{ticket.order_id}</div>
-        <div>
-          時間：
-          {new Date(ticket.created_at).toLocaleString('zh-TW', {
-            hour12: false,
-          })}
+          .center {
+            text-align: center;
+          }
+
+          .title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
+          }
+
+          .meta {
+            font-size: 12px;
+            line-height: 1.5;
+          }
+
+          .divider {
+            border-top: 1px dashed #000;
+            margin: 8px 0;
+          }
+
+          .row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+          }
+
+          .row .left {
+            flex: 1;
+            word-break: break-word;
+          }
+
+          .row .right {
+            white-space: nowrap;
+            text-align: right;
+            min-width: 70px;
+          }
+
+          .total {
+            font-size: 16px;
+            font-weight: bold;
+          }
+
+          .footer {
+            margin-top: 14px;
+            text-align: center;
+            font-size: 12px;
+            line-height: 1.6;
+          }
+
+          .muted {
+            color: #333;
+          }
+
+          @media print {
+            html, body {
+              width: 80mm;
+              margin: 0;
+              padding: 0;
+            }
+
+            body {
+              width: 80mm;
+              padding: 4mm;
+            }
+
+            .no-print {
+              display: none !important;
+            }
+          }
+        `}</style>
+      </head>
+
+      <body>
+        <div className="center title">夜店義大利麵</div>
+
+        <div className="center meta">
+          <div>訂單：{order?.id?.slice(0, 8) || '-'}</div>
+          <div>
+            時間：
+            {order?.created_at
+              ? new Date(order.created_at).toLocaleString()
+              : '-'}
+          </div>
         </div>
 
-        <div className="my-2 border-t border-dashed border-black" />
+        <div className="divider" />
 
-        <div className="space-y-1">
-          {ticket.printable_lines.map((line, i) => (
-            <div key={i}>{line}</div>
-          ))}
+        {itemsWithName.map((item: any) => (
+          <div key={item.id} className="row">
+            <span className="left">
+              {item.name} x{Number(item.qty || 0)}
+            </span>
+            <span className="right">
+              NT$ {Number(item.price || 0) * Number(item.qty || 0)}
+            </span>
+          </div>
+        ))}
+
+        <div className="divider" />
+
+        <div className="row total">
+          <span className="left">總計</span>
+          <span className="right">NT$ {order?.total ?? 0}</span>
         </div>
 
-        <div className="mt-4 text-center text-[11px]">謝謝光臨</div>
-      </div>
-    </main>
+        <div className="divider" />
+
+        <div className="meta muted">
+          <div>付款方式：{order?.payment_method || '-'}</div>
+          <div>實收：NT$ {order?.received_amount ?? 0}</div>
+          <div>找零：NT$ {order?.change_amount ?? 0}</div>
+        </div>
+
+        <div className="footer">
+          <div>THANK YOU</div>
+          <div>歡迎再次光臨</div>
+        </div>
+
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              setTimeout(() => {
+                window.print();
+              }, 300);
+
+              window.onafterprint = () => {
+                window.close();
+              };
+            `,
+          }}
+        />
+      </body>
+    </html>
   )
 }
