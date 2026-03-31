@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 type OrderItem = {
@@ -22,12 +22,15 @@ type Order = {
   items?: OrderItem[]
 }
 
+type FilterKey = 'all' | 'unpaid' | 'paid' | 'today'
+
 export default function OrderList() {
   const supabase = createClient()
 
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
+  const [filter, setFilter] = useState<FilterKey>('all')
 
   useEffect(() => {
     fetchOrders()
@@ -88,14 +91,136 @@ export default function OrderList() {
     return new Date(time).toLocaleString()
   }
 
+  function isToday(dateString: string) {
+    const date = new Date(dateString)
+    const now = new Date()
+
+    return (
+      date.getFullYear() === now.getFullYear() &&
+      date.getMonth() === now.getMonth() &&
+      date.getDate() === now.getDate()
+    )
+  }
+
+  const todayOrders = useMemo(() => {
+    return orders.filter((order) => isToday(order.created_at))
+  }, [orders])
+
+  const todayRevenue = useMemo(() => {
+    return todayOrders
+      .filter((order) => order.status === 'paid')
+      .reduce((sum, order) => sum + order.total, 0)
+  }, [todayOrders])
+
+  const paidCount = useMemo(() => {
+    return orders.filter((order) => order.status === 'paid').length
+  }, [orders])
+
+  const unpaidCount = useMemo(() => {
+    return orders.filter((order) => order.status !== 'paid').length
+  }, [orders])
+
+  const filteredOrders = useMemo(() => {
+    switch (filter) {
+      case 'unpaid':
+        return orders.filter((order) => order.status !== 'paid')
+      case 'paid':
+        return orders.filter((order) => order.status === 'paid')
+      case 'today':
+        return orders.filter((order) => isToday(order.created_at))
+      case 'all':
+      default:
+        return orders
+    }
+  }, [orders, filter])
+
+  useEffect(() => {
+    if (!filteredOrders.length) {
+      setSelectedOrder(null)
+      return
+    }
+
+    setSelectedOrder((prev) => {
+      if (!prev) return filteredOrders[0]
+      return filteredOrders.find((order) => order.id === prev.id) || filteredOrders[0]
+    })
+  }, [filter, orders])
+
+  function filterButtonClass(key: FilterKey) {
+    return `rounded-xl px-4 py-2 text-sm font-semibold ${
+      filter === key
+        ? 'bg-black text-white'
+        : 'bg-neutral-100 text-neutral-700 hover:bg-neutral-200'
+    }`
+  }
+
   return (
     <div className="flex h-full">
-      <div className="w-1/2 overflow-y-auto border-r">
-        <div className="p-4 text-xl font-bold">訂單管理</div>
+      <div className="w-1/2 overflow-y-auto border-r bg-white">
+        <div className="border-b p-4">
+          <div className="text-2xl font-bold">訂單管理</div>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">今日營業額</div>
+              <div className="mt-1 text-2xl font-bold">NT$ {todayRevenue}</div>
+            </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">今日訂單數</div>
+              <div className="mt-1 text-2xl font-bold">{todayOrders.length}</div>
+            </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">已付款</div>
+              <div className="mt-1 text-2xl font-bold text-green-600">
+                {paidCount}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">未付款</div>
+              <div className="mt-1 text-2xl font-bold text-orange-500">
+                {unpaidCount}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              onClick={() => setFilter('all')}
+              className={filterButtonClass('all')}
+            >
+              全部
+            </button>
+            <button
+              onClick={() => setFilter('unpaid')}
+              className={filterButtonClass('unpaid')}
+            >
+              未付款
+            </button>
+            <button
+              onClick={() => setFilter('paid')}
+              className={filterButtonClass('paid')}
+            >
+              已付款
+            </button>
+            <button
+              onClick={() => setFilter('today')}
+              className={filterButtonClass('today')}
+            >
+              今日
+            </button>
+          </div>
+        </div>
 
         {loading && <div className="p-4">載入中...</div>}
 
-        {orders.map((order) => (
+        {!loading && filteredOrders.length === 0 && (
+          <div className="p-4 text-sm text-neutral-400">目前沒有符合條件的訂單</div>
+        )}
+
+        {filteredOrders.map((order) => (
           <div
             key={order.id}
             onClick={() => setSelectedOrder(order)}
@@ -103,10 +228,17 @@ export default function OrderList() {
               selectedOrder?.id === order.id ? 'bg-neutral-50' : ''
             }`}
           >
-            <div className="flex justify-between">
-              <div className="font-semibold">
-                桌號：{order.table_id?.slice(0, 6) || '外帶'}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-semibold">
+                  桌號：{order.table_id?.slice(0, 6) || '外帶'}
+                </div>
+                <div className="mt-1 text-sm text-neutral-500">NT$ {order.total}</div>
+                <div className="text-xs text-neutral-400">
+                  {formatTime(order.created_at)}
+                </div>
               </div>
+
               <div
                 className={`text-sm font-bold ${
                   order.status === 'paid' ? 'text-green-600' : 'text-orange-500'
@@ -115,31 +247,25 @@ export default function OrderList() {
                 {order.status}
               </div>
             </div>
-
-            <div className="mt-1 text-sm text-neutral-500">NT$ {order.total}</div>
-
-            <div className="text-xs text-neutral-400">
-              {formatTime(order.created_at)}
-            </div>
           </div>
         ))}
       </div>
 
-      <div className="flex-1 p-6">
+      <div className="flex-1 bg-neutral-50 p-6">
         {!selectedOrder ? (
           <div className="text-neutral-400">請選擇訂單</div>
         ) : (
           <div className="space-y-4">
             <div className="text-2xl font-bold">訂單詳細</div>
 
-            <div className="rounded-xl border p-4">
+            <div className="rounded-2xl border bg-white p-4">
               <div>狀態：{selectedOrder.status}</div>
-              <div>桌號：{selectedOrder.table_id}</div>
+              <div>桌號：{selectedOrder.table_id || '-'}</div>
               <div>金額：NT$ {selectedOrder.total}</div>
               <div>建立時間：{formatTime(selectedOrder.created_at)}</div>
             </div>
 
-            <div className="rounded-xl border p-4">
+            <div className="rounded-2xl border bg-white p-4">
               <div className="mb-2 font-semibold">餐點內容</div>
 
               {selectedOrder.items?.length ? (
@@ -161,7 +287,7 @@ export default function OrderList() {
               )}
             </div>
 
-            <div className="rounded-xl border p-4">
+            <div className="rounded-2xl border bg-white p-4">
               <div className="mb-2 font-semibold">付款資訊</div>
               <div>付款方式：{selectedOrder.payment_method || '-'}</div>
               <div>實收：NT$ {selectedOrder.received_amount ?? '-'}</div>
