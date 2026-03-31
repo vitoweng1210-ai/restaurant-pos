@@ -106,11 +106,13 @@ export default function OrderList() {
     return orders.filter((order) => isToday(order.created_at))
   }, [orders])
 
-  const todayRevenue = useMemo(() => {
-    return todayOrders
-      .filter((order) => order.status === 'paid')
-      .reduce((sum, order) => sum + order.total, 0)
+  const todayPaidOrders = useMemo(() => {
+    return todayOrders.filter((order) => order.status === 'paid')
   }, [todayOrders])
+
+  const todayRevenue = useMemo(() => {
+    return todayPaidOrders.reduce((sum, order) => sum + order.total, 0)
+  }, [todayPaidOrders])
 
   const paidCount = useMemo(() => {
     return orders.filter((order) => order.status === 'paid').length
@@ -119,6 +121,24 @@ export default function OrderList() {
   const unpaidCount = useMemo(() => {
     return orders.filter((order) => order.status !== 'paid').length
   }, [orders])
+
+  const todayCashTotal = useMemo(() => {
+    return todayPaidOrders
+      .filter((order) => order.payment_method === 'cash')
+      .reduce((sum, order) => sum + order.total, 0)
+  }, [todayPaidOrders])
+
+  const todayCardTotal = useMemo(() => {
+    return todayPaidOrders
+      .filter((order) => order.payment_method === 'card')
+      .reduce((sum, order) => sum + order.total, 0)
+  }, [todayPaidOrders])
+
+  const todayLinePayTotal = useMemo(() => {
+    return todayPaidOrders
+      .filter((order) => order.payment_method === 'linepay')
+      .reduce((sum, order) => sum + order.total, 0)
+  }, [todayPaidOrders])
 
   const filteredOrders = useMemo(() => {
     switch (filter) {
@@ -183,6 +203,21 @@ export default function OrderList() {
               <div className="mt-1 text-2xl font-bold text-orange-500">
                 {unpaidCount}
               </div>
+            </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">今日現金</div>
+              <div className="mt-1 text-2xl font-bold">NT$ {todayCashTotal}</div>
+            </div>
+
+            <div className="rounded-2xl border p-4">
+              <div className="text-sm text-neutral-500">今日刷卡</div>
+              <div className="mt-1 text-2xl font-bold">NT$ {todayCardTotal}</div>
+            </div>
+
+            <div className="rounded-2xl border p-4 col-span-2">
+              <div className="text-sm text-neutral-500">今日 LINE Pay</div>
+              <div className="mt-1 text-2xl font-bold">NT$ {todayLinePayTotal}</div>
             </div>
           </div>
 
