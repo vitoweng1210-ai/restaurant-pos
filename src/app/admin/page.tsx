@@ -13,7 +13,7 @@ export default async function AdminPage() {
           目前登入：{staff.name} / {staff.role}
         </p>
 
-        <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-7">
           <Link
             href="/admin/orders"
             className="rounded-2xl border border-neutral-300 px-6 py-5 text-center text-lg font-semibold hover:bg-neutral-100"
@@ -54,6 +54,13 @@ export default async function AdminPage() {
             className="rounded-2xl border border-neutral-300 px-6 py-5 text-center text-lg font-semibold hover:bg-neutral-100"
           >
             廚房 KDS
+          </Link>
+
+          <Link
+            href="/admin/reports"
+            className="rounded-2xl border border-neutral-300 px-6 py-5 text-center text-lg font-semibold hover:bg-neutral-100"
+          >
+            日結報表
           </Link>
         </div>
       </div>
