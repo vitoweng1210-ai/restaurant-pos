@@ -11,6 +11,7 @@ import type {
 import TableSidebar from '@/components/pos/TableSidebar'
 import MenuGrid from '@/components/pos/MenuGrid'
 import OrderPanel from '@/components/pos/OrderPanel'
+import PaymentDrawer from '@/components/pos/PaymentDrawer'
 
 export type CartItem = {
   menu_id: string
@@ -18,6 +19,8 @@ export type CartItem = {
   price: number
   qty: number
 }
+
+type PaymentMethod = 'cash' | 'card' | 'linepay'
 
 export default function PosShell({ staff }: { staff: SessionStaff }) {
   const [tables, setTables] = useState<TableRow[]>([])
@@ -31,6 +34,9 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
   const [submitting, setSubmitting] = useState(false)
   const [paying, setPaying] = useState(false)
   const initializedRef = useRef(false)
+
+  const [paymentOpen, setPaymentOpen] = useState(false)
+  const [serviceChargeEnabled, setServiceChargeEnabled] = useState(true)
 
   async function loadTablesOnly() {
     try {
@@ -134,6 +140,26 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
     return cart.reduce((sum, item) => sum + item.price * item.qty, 0)
   }, [cart])
 
+  const currentOrderSubtotal = useMemo(() => {
+    if (!currentOrder) return 0
+
+    const orderAny = currentOrder as any
+
+    if (typeof orderAny.total_amount === 'number') return orderAny.total_amount
+    if (typeof orderAny.total === 'number') return orderAny.total
+    if (typeof orderAny.amount === 'number') return orderAny.amount
+
+    if (Array.isArray(orderAny.items)) {
+      return orderAny.items.reduce((sum: number, item: any) => {
+        const qty = Number(item.qty ?? item.quantity ?? 0)
+        const price = Number(item.price ?? 0)
+        return sum + qty * price
+      }, 0)
+    }
+
+    return 0
+  }, [currentOrder])
+
   function addToCart(item: MenuRow) {
     setCart((prev) => {
       const found = prev.find((x) => x.menu_id === item.id)
@@ -224,6 +250,15 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
     }
   }
 
+  function openPaymentDrawer() {
+    if (!currentOrder?.id) {
+      alert('目前沒有可結帳訂單')
+      return
+    }
+
+    setPaymentOpen(true)
+  }
+
   async function payOrder(paymentMethod: string, receivedAmount: number) {
     if (!currentOrder?.id) {
       alert('目前沒有可結帳訂單')
@@ -255,6 +290,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
         alert('結帳成功')
       }
 
+      setPaymentOpen(false)
       await loadTablesOnly()
       await loadCurrentOrder(selectedTableId)
       setCart([])
@@ -264,6 +300,22 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
     } finally {
       setPaying(false)
     }
+  }
+
+  async function handleConfirmPayment(payload: {
+    paymentMethod: PaymentMethod
+    subtotal: number
+    serviceCharge: number
+    total: number
+    receivedAmount: number
+    changeAmount: number
+  }) {
+    const finalReceivedAmount =
+      payload.paymentMethod === 'cash'
+        ? payload.receivedAmount
+        : payload.total
+
+    await payOrder(payload.paymentMethod, finalReceivedAmount)
   }
 
   if (loading) {
@@ -302,11 +354,20 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
           onDecrease={decreaseQty}
           onRemove={removeItem}
           onSubmit={submitOrder}
-          onPay={payOrder}
+          onPay={openPaymentDrawer}
           submitting={submitting}
           paying={paying}
         />
       </div>
+
+      <PaymentDrawer
+        open={paymentOpen}
+        onClose={() => setPaymentOpen(false)}
+        subtotal={currentOrderSubtotal}
+        serviceChargeEnabled={serviceChargeEnabled}
+        onToggleServiceCharge={setServiceChargeEnabled}
+        onConfirm={handleConfirmPayment}
+      />
     </main>
   )
 }

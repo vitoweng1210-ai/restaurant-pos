@@ -1,174 +1,114 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import type { OrderListItem, OrderStatus } from '@/lib/types'
+import { createClient } from '@/lib/supabase/client'
 
-const STATUS_OPTIONS: OrderStatus[] = [
-  'new',
-  'preparing',
-  'ready',
-  'served',
-  'paid',
-]
+type Order = {
+  id: string
+  table_id: string | null
+  status: string
+  total: number
+  payment_method: string | null
+  received_amount: number | null
+  change_amount: number | null
+  paid_at: string | null
+  created_at: string
+}
 
 export default function OrderList() {
-  const [orders, setOrders] = useState<OrderListItem[]>([])
+  const supabase = createClient()
+
+  const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'open' | 'paid' | 'all'>('open')
-
-  async function loadOrders(nextView?: 'open' | 'paid' | 'all') {
-    const currentView = nextView || view
-
-    try {
-      const res = await fetch(`/api/admin/orders?view=${currentView}`, {
-        cache: 'no-store',
-      })
-      const data = await res.json()
-      setOrders(Array.isArray(data) ? data : [])
-    } catch {
-      setOrders([])
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function changeStatus(orderId: string, status: OrderStatus) {
-    const res = await fetch(`/api/orders/${orderId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-
-    if (!res.ok) {
-      alert('更新狀態失敗')
-      return
-    }
-
-    await loadOrders()
-  }
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null)
 
   useEffect(() => {
-    loadOrders(view)
-  }, [view])
+    fetchOrders()
+  }, [])
 
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-neutral-100">
-        <div className="text-lg font-semibold">載入中...</div>
-      </main>
-    )
+  async function fetchOrders() {
+    setLoading(true)
+
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (!error && data) {
+      setOrders(data as Order[])
+    }
+
+    setLoading(false)
+  }
+
+  function formatTime(time: string | null) {
+    if (!time) return '-'
+    return new Date(time).toLocaleString()
   }
 
   return (
-    <main className="min-h-screen bg-neutral-100 p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-3xl font-bold">訂單管理</h1>
+    <div className="flex h-full">
+      {/* 左：訂單列表 */}
+      <div className="w-1/2 border-r overflow-y-auto">
+        <div className="p-4 text-xl font-bold">訂單管理</div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => setView('open')}
-              className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
-                view === 'open' ? 'bg-black text-white' : 'bg-white'
-              }`}
-            >
-              未結帳
-            </button>
+        {loading && <div className="p-4">載入中...</div>}
 
-            <button
-              onClick={() => setView('paid')}
-              className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
-                view === 'paid' ? 'bg-black text-white' : 'bg-white'
-              }`}
-            >
-              已結帳
-            </button>
-
-            <button
-              onClick={() => setView('all')}
-              className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
-                view === 'all' ? 'bg-black text-white' : 'bg-white'
-              }`}
-            >
-              全部
-            </button>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {orders.length === 0 ? (
-            <div className="rounded-3xl bg-white p-6 shadow-sm">目前沒有訂單</div>
-          ) : (
-            orders.map((order) => (
-              <div key={order.id} className="rounded-3xl bg-white p-5 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xl font-bold">{order.table_name}</div>
-                    <div className="mt-1 text-sm text-neutral-500">
-                      {new Date(order.created_at).toLocaleString()}
-                    </div>
-                    <div className="mt-1 text-sm text-neutral-500">
-                      狀態：{order.status}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <a
-                      href={`/print/order/${order.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold"
-                    >
-                      收銀單
-                    </a>
-
-                    <a
-                      href={`/print/kitchen/${order.id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold"
-                    >
-                      廚房單
-                    </a>
-
-                    {view !== 'paid' &&
-                      STATUS_OPTIONS.map((status) => (
-                        <button
-                          key={status}
-                          onClick={() => changeStatus(order.id, status)}
-                          className={`rounded-2xl px-4 py-2 text-sm font-semibold ${
-                            order.status === status
-                              ? 'bg-black text-white'
-                              : 'border border-neutral-300 bg-white'
-                          }`}
-                        >
-                          {status}
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                <div className="mt-4 rounded-2xl bg-neutral-50 p-4">
-                  <div className="space-y-2">
-                    {order.items.map((item) => (
-                      <div key={item.id} className="flex items-center justify-between">
-                        <div>
-                          {item.name} x {item.qty}
-                        </div>
-                        <div>NT$ {item.qty * item.price}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-4 border-t pt-3 text-right text-lg font-bold">
-                    總計 NT$ {order.total}
-                  </div>
-                </div>
+        {orders.map((order) => (
+          <div
+            key={order.id}
+            onClick={() => setSelectedOrder(order)}
+            className="cursor-pointer border-b p-4 hover:bg-neutral-50"
+          >
+            <div className="flex justify-between">
+              <div className="font-semibold">
+                桌號：{order.table_id?.slice(0, 6) || '外帶'}
               </div>
-            ))
-          )}
-        </div>
+              <div
+                className={`text-sm font-bold ${
+                  order.status === 'paid' ? 'text-green-600' : 'text-orange-500'
+                }`}
+              >
+                {order.status}
+              </div>
+            </div>
+
+            <div className="mt-1 text-sm text-neutral-500">
+              NT$ {order.total}
+            </div>
+
+            <div className="text-xs text-neutral-400">
+              {formatTime(order.created_at)}
+            </div>
+          </div>
+        ))}
       </div>
-    </main>
+
+      {/* 右：詳細 */}
+      <div className="flex-1 p-6">
+        {!selectedOrder ? (
+          <div className="text-neutral-400">請選擇訂單</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="text-2xl font-bold">訂單詳細</div>
+
+            <div className="rounded-xl border p-4">
+              <div>狀態：{selectedOrder.status}</div>
+              <div>桌號：{selectedOrder.table_id}</div>
+              <div>金額：NT$ {selectedOrder.total}</div>
+              <div>建立時間：{formatTime(selectedOrder.created_at)}</div>
+            </div>
+
+            <div className="rounded-xl border p-4">
+              <div className="font-semibold mb-2">付款資訊</div>
+              <div>付款方式：{selectedOrder.payment_method || '-'}</div>
+              <div>實收：NT$ {selectedOrder.received_amount ?? '-'}</div>
+              <div>找零：NT$ {selectedOrder.change_amount ?? '-'}</div>
+              <div>結帳時間：{formatTime(selectedOrder.paid_at)}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

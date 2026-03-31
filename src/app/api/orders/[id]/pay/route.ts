@@ -4,7 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 type OrderRow = {
   id: string
   table_id: string | null
-  total: number
+  total: number | null
+  subtotal?: number | null
+  service_charge?: number | null
   status: string
 }
 
@@ -36,15 +38,33 @@ export async function POST(
     }
 
     let payableTotal = Number(order.total || 0)
+    let targetOrders: OrderRow[] = [
+      {
+        id: order.id,
+        table_id: order.table_id,
+        total: Number(order.total || 0),
+        subtotal: Number(order.subtotal || 0),
+        service_charge: Number(order.service_charge || 0),
+        status: String(order.status || ''),
+      },
+    ]
 
     if (order.table_id) {
-      const { data: tableOrders } = await supabase
+      const { data: tableOrders, error: tableOrdersError } = await supabase
         .from('orders')
-        .select('id, table_id, total, status')
+        .select('id, table_id, total, subtotal, service_charge, status')
         .eq('table_id', order.table_id)
         .neq('status', 'paid')
 
-      payableTotal = ((tableOrders || []) as OrderRow[]).reduce(
+      if (tableOrdersError) {
+        return NextResponse.json({ error: '讀取桌位訂單失敗' }, { status: 500 })
+      }
+
+      targetOrders = ((tableOrders || []) as OrderRow[]).filter(
+        (item) => item.status !== 'paid'
+      )
+
+      payableTotal = targetOrders.reduce(
         (sum, item) => sum + Number(item.total || 0),
         0
       )
@@ -54,41 +74,61 @@ export async function POST(
       return NextResponse.json({ error: '收款金額不足' }, { status: 400 })
     }
 
+    const finalReceivedAmount =
+      payment_method === 'cash' ? received_amount : payableTotal
+
+    const finalChangeAmount =
+      payment_method === 'cash'
+        ? Math.max(finalReceivedAmount - payableTotal, 0)
+        : 0
+
+    const paidAt = new Date().toISOString()
+
+    const orderIds = targetOrders.map((item) => item.id)
+
+    if (orderIds.length === 0) {
+      return NextResponse.json({ error: '沒有可結帳訂單' }, { status: 400 })
+    }
+
+    const { error: updateOrdersError } = await supabase
+      .from('orders')
+      .update({
+        status: 'paid',
+        payment_method,
+        received_amount: finalReceivedAmount,
+        change_amount: finalChangeAmount,
+        paid_at: paidAt,
+      })
+      .in('id', orderIds)
+
+    if (updateOrdersError) {
+      console.error(updateOrdersError)
+      return NextResponse.json({ error: '結帳失敗' }, { status: 500 })
+    }
+
     if (order.table_id) {
-      const { error: updateAllError } = await supabase
-        .from('orders')
-        .update({ status: 'paid' })
-        .eq('table_id', order.table_id)
-        .neq('status', 'paid')
-
-      if (updateAllError) {
-        return NextResponse.json({ error: '結帳失敗' }, { status: 500 })
-      }
-
       const { error: tableUpdateError } = await supabase
         .from('tables')
         .update({ status: 'available' })
         .eq('id', order.table_id)
 
       if (tableUpdateError) {
+        console.error(tableUpdateError)
         return NextResponse.json({ error: '桌位釋放失敗' }, { status: 500 })
-      }
-    } else {
-      const { error: updateError } = await supabase
-        .from('orders')
-        .update({ status: 'paid' })
-        .eq('id', id)
-
-      if (updateError) {
-        return NextResponse.json({ error: '結帳失敗' }, { status: 500 })
       }
     }
 
     return NextResponse.json({
       ok: true,
-      change: payment_method === 'cash' ? received_amount - payableTotal : 0,
+      paid_order_ids: orderIds,
+      payment_method,
+      total_amount: payableTotal,
+      received_amount: finalReceivedAmount,
+      change: finalChangeAmount,
+      paid_at: paidAt,
     })
-  } catch {
+  } catch (error) {
+    console.error(error)
     return NextResponse.json({ error: '結帳失敗' }, { status: 500 })
   }
 }

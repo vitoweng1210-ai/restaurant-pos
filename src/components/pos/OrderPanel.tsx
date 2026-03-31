@@ -1,14 +1,8 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import type { CurrentOrder, TableRow } from '@/lib/types'
 import type { CartItem } from '@/components/pos/PosShell'
-
-const PAYMENT_OPTIONS = [
-  { value: 'cash', label: '現金' },
-  { value: 'card', label: '刷卡' },
-  { value: 'linepay', label: 'LINE Pay' },
-]
 
 export default function OrderPanel({
   tables,
@@ -33,54 +27,13 @@ export default function OrderPanel({
   onDecrease: (menuId: string) => void
   onRemove: (menuId: string) => void
   onSubmit: () => void
-  onPay: (paymentMethod: string, receivedAmount: number) => void
+  onPay: () => void
   submitting: boolean
   paying: boolean
 }) {
   const [tab, setTab] = useState<'cart' | 'checkout'>('cart')
-  const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [cashInput, setCashInput] = useState('')
 
   const table = tables.find((t) => t.id === selectedTableId)
-
-  const orderTotal = Number(currentOrder?.total || 0)
-  const receivedAmount = Number(cashInput || 0)
-
-  const change = useMemo(() => {
-    if (paymentMethod !== 'cash') return 0
-    return Math.max(receivedAmount - orderTotal, 0)
-  }, [paymentMethod, receivedAmount, orderTotal])
-
-  function appendCashInput(value: string) {
-    setCashInput((prev) => {
-      if (prev === '0') return value
-      return `${prev}${value}`
-    })
-  }
-
-  function clearCashInput() {
-    setCashInput('')
-  }
-
-  function backspaceCashInput() {
-    setCashInput((prev) => prev.slice(0, -1))
-  }
-
-  async function handlePay() {
-    if (!currentOrder) {
-      alert('目前沒有可結帳訂單')
-      return
-    }
-
-    if (paymentMethod === 'cash' && receivedAmount < orderTotal) {
-      alert('收款金額不足')
-      return
-    }
-
-    await onPay(paymentMethod, receivedAmount)
-    setCashInput('')
-    setTab('cart')
-  }
 
   return (
     <aside className="flex h-full flex-col rounded-3xl bg-white p-4 shadow-sm">
@@ -241,100 +194,16 @@ export default function OrderPanel({
                   </div>
                 </div>
 
-                <div className="rounded-2xl border border-neutral-200 p-4">
-                  <div className="mb-3 text-sm font-semibold text-neutral-500">
-                    付款方式
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    {PAYMENT_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        onClick={() => setPaymentMethod(option.value)}
-                        className={`rounded-2xl px-3 py-3 text-sm font-semibold ${
-                          paymentMethod === option.value
-                            ? 'bg-black text-white'
-                            : 'bg-neutral-100'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
+                <div className="rounded-2xl bg-neutral-50 p-4 text-sm text-neutral-600">
+                  按下下方「確認結帳」後，會打開新的結帳面板。
                 </div>
-
-                {paymentMethod === 'cash' && (
-                  <div className="rounded-2xl border border-neutral-200 p-4">
-                    <div className="mb-3 text-sm font-semibold text-neutral-500">
-                      收款金額
-                    </div>
-
-                    <div className="mb-3 rounded-2xl bg-neutral-100 px-4 py-4 text-right text-3xl font-bold">
-                      {cashInput || '0'}
-                    </div>
-
-                    <div className="mb-3 grid grid-cols-3 gap-2">
-                      {['1', '2', '3', '4', '5', '6', '7', '8', '9', '00', '0', '←'].map(
-                        (key) => (
-                          <button
-                            key={key}
-                            onClick={() => {
-                              if (key === '←') {
-                                backspaceCashInput()
-                                return
-                              }
-                              appendCashInput(key)
-                            }}
-                            className="rounded-2xl bg-neutral-100 px-4 py-4 text-lg font-bold"
-                          >
-                            {key}
-                          </button>
-                        )
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2">
-                      {[100, 500, 1000].map((amount) => (
-                        <button
-                          key={amount}
-                          onClick={() => setCashInput(String(amount))}
-                          className="rounded-2xl border px-4 py-3 text-sm font-semibold"
-                        >
-                          {amount}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      onClick={clearCashInput}
-                      className="mt-3 w-full rounded-2xl border px-4 py-3 text-sm font-semibold"
-                    >
-                      清除
-                    </button>
-
-                    <div className="mt-4 space-y-2 rounded-2xl bg-neutral-50 p-4">
-                      <div className="flex items-center justify-between">
-                        <span>應收</span>
-                        <span className="font-bold">NT$ {orderTotal}</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>實收</span>
-                        <span className="font-bold">NT$ {receivedAmount}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-lg">
-                        <span>找零</span>
-                        <span className="font-bold">NT$ {change}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
 
           <div className="mt-4 border-t pt-4">
             <button
-              onClick={handlePay}
+              onClick={onPay}
               disabled={!currentOrder || paying}
               className="w-full rounded-2xl bg-black px-4 py-4 text-sm font-semibold text-white disabled:opacity-50"
             >
