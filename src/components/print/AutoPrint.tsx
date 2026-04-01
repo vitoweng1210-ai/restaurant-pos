@@ -4,11 +4,20 @@ import { useEffect } from 'react'
 
 export default function AutoPrint() {
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const timer = window.setTimeout(() => {
       window.print()
     }, 300)
 
-    return () => clearTimeout(timer)
+    const handleAfterPrint = () => {
+      window.close()
+    }
+
+    window.addEventListener('afterprint', handleAfterPrint)
+
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('afterprint', handleAfterPrint)
+    }
   }, [])
 
   return null

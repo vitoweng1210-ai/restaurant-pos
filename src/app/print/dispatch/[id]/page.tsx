@@ -33,6 +33,15 @@ type CategoryRow = {
   name: string
 }
 
+type PrintItem = {
+  id: string
+  name: string
+  qty: number
+  note?: string | null
+}
+
+type MenuStation = 'main' | 'side' | 'dessert_drink'
+
 const DRINK_DESSERT_KEYWORDS = [
   '飲',
   '甜',
@@ -54,6 +63,17 @@ const DRINK_DESSERT_KEYWORDS = [
   '蛋糕',
 ]
 
+const SIDE_KEYWORDS = [
+  '附餐',
+  'side',
+  '薯條',
+  '麵包',
+  '濃湯',
+  '沙拉',
+  '前菜',
+  '小點',
+]
+
 function formatDateTime(value?: string | null) {
   if (!value) return ''
   const d = new Date(value)
@@ -67,31 +87,37 @@ function formatDateTime(value?: string | null) {
   }).format(d)
 }
 
-function isBarItem(name?: string | null, categoryName?: string | null, station?: string | null) {
-  const rawStation = (station || '').toLowerCase().trim()
-
-  if (
-    rawStation === 'dessert_drink' ||
-    rawStation === 'dessert-drink' ||
-    rawStation === 'drink' ||
-    rawStation === 'dessert' ||
-    rawStation === 'bar'
-  ) {
-    return true
-  }
-
-  if (rawStation === 'main' || rawStation === 'side') {
-    return false
-  }
-
+function inferStation(name?: string | null, categoryName?: string | null): MenuStation {
   const text = `${name || ''} ${categoryName || ''}`.toLowerCase()
-  return DRINK_DESSERT_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))
+
+  if (DRINK_DESSERT_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))) {
+    return 'dessert_drink'
+  }
+
+  if (SIDE_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))) {
+    return 'side'
+  }
+
+  return 'main'
 }
 
-function mergeItems(
-  items: Array<{ id: string; name: string; qty: number; note?: string | null }>
-) {
-  const map = new Map<string, { name: string; qty: number; note?: string | null }>()
+function normalizeStation(
+  rawStation?: string | null,
+  itemName?: string | null,
+  categoryName?: string | null
+): MenuStation {
+  const value = (rawStation || '').trim().toLowerCase()
+
+  if (value === 'main') return 'main'
+  if (value === 'side') return 'side'
+  if (value === 'dessert_drink') return 'dessert_drink'
+  if (value === 'dessert-drink') return 'dessert_drink'
+
+  return inferStation(itemName, categoryName)
+}
+
+function mergeItems(items: PrintItem[]) {
+  const map = new Map<string, PrintItem>()
 
   for (const item of items) {
     const key = `${item.name}__${item.note || ''}`
@@ -101,6 +127,7 @@ function mergeItems(
       found.qty += item.qty
     } else {
       map.set(key, {
+        id: item.id,
         name: item.name,
         qty: item.qty,
         note: item.note || '',
@@ -122,7 +149,7 @@ function TicketSection({
   tableName: string
   orderId: string
   createdAt: string
-  items: Array<{ name: string; qty: number; note?: string | null }>
+  items: PrintItem[]
 }) {
   const merged = mergeItems(items)
 
@@ -137,8 +164,8 @@ function TicketSection({
       <div>時間：{createdAt}</div>
       <div className="divider" />
 
-      {merged.map((item, index) => (
-        <div key={`${item.name}-${index}`} className="item-row">
+      {merged.map((item) => (
+        <div key={item.id} className="item-row">
           <div className="item-name">
             {item.name}
             {item.note ? <div className="item-note">備註：{item.note}</div> : null}
@@ -190,8 +217,9 @@ export default async function PrintDispatchPage({
   }
 
   const { data: orderItems } = await itemsQuery
+  const typedOrderItems = (orderItems || []) as OrderItemRow[]
 
-  const menuIds = (orderItems || [])
+  const menuIds = typedOrderItems
     .map((item) => item.menu_id)
     .filter(Boolean) as string[]
 
@@ -204,11 +232,7 @@ export default async function PrintDispatchPage({
       : { data: [] as MenuRow[] }
 
   const categoryIds = Array.from(
-    new Set(
-      (menuRows || [])
-        .map((m) => m.category_id)
-        .filter(Boolean)
-    )
+    new Set((menuRows || []).map((m) => m.category_id).filter(Boolean))
   ) as string[]
 
   const { data: categoryRows } =
@@ -219,24 +243,29 @@ export default async function PrintDispatchPage({
           .in('id', categoryIds)
       : { data: [] as CategoryRow[] }
 
-  const menuMap = new Map((menuRows || []).map((m: any) => [m.id, m as MenuRow]))
-  const categoryMap = new Map((categoryRows || []).map((c: any) => [c.id, c as CategoryRow]))
+  const menuMap = new Map(
+    (menuRows || []).map((m: any) => [m.id, m as MenuRow])
+  )
+  const categoryMap = new Map(
+    (categoryRows || []).map((c: any) => [c.id, c as CategoryRow])
+  )
 
-  const kitchenItems: Array<{ id: string; name: string; qty: number; note?: string | null }> = []
-  const barItems: Array<{ id: string; name: string; qty: number; note?: string | null }> = []
+  const kitchenItems: PrintItem[] = []
+  const barItems: PrintItem[] = []
 
-  for (const item of orderItems || []) {
+  for (const item of typedOrderItems) {
     const menu = item.menu_id ? menuMap.get(item.menu_id) : null
     const category = menu?.category_id ? categoryMap.get(menu.category_id) : null
+    const station = normalizeStation(menu?.station, menu?.name, category?.name)
 
-    const normalized = {
+    const normalized: PrintItem = {
       id: item.id,
       name: menu?.name || '未知品項',
       qty: item.qty || 0,
       note: '',
     }
 
-    if (isBarItem(menu?.name, category?.name, menu?.station)) {
+    if (station === 'dessert_drink') {
       barItems.push(normalized)
     } else {
       kitchenItems.push(normalized)
@@ -266,10 +295,12 @@ export default async function PrintDispatchPage({
               font-size: 12px;
               color: #000;
               background: #fff;
+              zoom: 1.25;
             }
 
             .ticket-page {
               width: 72mm;
+              max-width: 72mm;
               margin: 0 auto;
               padding: 0;
               page-break-after: always;
@@ -351,11 +382,11 @@ export default async function PrintDispatchPage({
             />
           ) : null}
 
-          {kitchenItems.length === 0 && barItems.length === 0 ? (
+          {kitchenItems.length === 0 && barItems.length === 0 && (
             <section className="ticket-page">
               <div className="ticket-title">無可列印品項</div>
             </section>
-          ) : null}
+          )}
         </body>
       </html>
     </>

@@ -222,12 +222,17 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
     setSubmitting(true)
 
     try {
+      const currentCart = [...cart]
+
+      // 先開單一列印視窗，避免送單成功後被瀏覽器擋 popup
+      const printWindow = window.open('', '_blank')
+
       const res = await fetch('/api/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           table_id: selectedTableId,
-          items: cart.map((item) => ({
+          items: currentCart.map((item) => ({
             menu_id: item.menu_id,
             qty: item.qty,
             price: item.price,
@@ -238,6 +243,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       const data = await res.json()
 
       if (!res.ok) {
+        if (printWindow) printWindow.close()
         alert(data.error || '送單失敗')
         return
       }
@@ -249,11 +255,15 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
           ? data.item_ids.join(',')
           : ''
 
-        if (itemIds) {
-          window.open(`/print/kitchen/${data.id}?itemIds=${itemIds}`, '_blank')
-        } else {
-          window.open(`/print/kitchen/${data.id}`, '_blank')
+        const dispatchUrl = itemIds
+          ? `/print/dispatch/${data.id}?item_ids=${itemIds}`
+          : `/print/dispatch/${data.id}`
+
+        if (printWindow) {
+          printWindow.location.href = dispatchUrl
         }
+      } else {
+        if (printWindow) printWindow.close()
       }
 
       setCart([])

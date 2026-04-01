@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import AutoPrint from '@/components/print/AutoPrint'
 
 export default async function PrintOrderPage({
   params,
@@ -30,107 +31,33 @@ export default async function PrintOrderPage({
       }
     }) || []
 
+  const groupedItemsMap = new Map<
+    string,
+    { name: string; qty: number; unitPrice: number }
+  >()
+
+  for (const item of itemsWithName) {
+    const key = `${item.menu_id}-${item.price}`
+    const current = groupedItemsMap.get(key)
+
+    if (current) {
+      current.qty += Number(item.qty || 0)
+    } else {
+      groupedItemsMap.set(key, {
+        name: item.name,
+        qty: Number(item.qty || 0),
+        unitPrice: Number(item.price || 0),
+      })
+    }
+  }
+
+  const groupedItems = Array.from(groupedItemsMap.values())
+
   return (
-    <html>
-      <head>
-        <title>列印小票</title>
-        <style>{`
-          @page {
-            size: 80mm auto;
-            margin: 0;
-          }
+    <>
+      <AutoPrint />
 
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: white;
-            font-family: monospace;
-            color: #000;
-          }
-
-          body {
-            width: 80mm;
-            box-sizing: border-box;
-            padding: 4mm;
-          }
-
-          .center {
-            text-align: center;
-          }
-
-          .title {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 6px;
-            letter-spacing: 0.5px;
-          }
-
-          .meta {
-            font-size: 12px;
-            line-height: 1.5;
-          }
-
-          .divider {
-            border-top: 1px dashed #000;
-            margin: 8px 0;
-          }
-
-          .row {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 8px;
-            font-size: 13px;
-            line-height: 1.6;
-          }
-
-          .row .left {
-            flex: 1;
-            word-break: break-word;
-          }
-
-          .row .right {
-            white-space: nowrap;
-            text-align: right;
-            min-width: 70px;
-          }
-
-          .total {
-            font-size: 16px;
-            font-weight: bold;
-          }
-
-          .footer {
-            margin-top: 14px;
-            text-align: center;
-            font-size: 12px;
-            line-height: 1.6;
-          }
-
-          .muted {
-            color: #333;
-          }
-
-          @media print {
-            html, body {
-              width: 80mm;
-              margin: 0;
-              padding: 0;
-            }
-
-            body {
-              width: 80mm;
-              padding: 4mm;
-            }
-
-            .no-print {
-              display: none !important;
-            }
-          }
-        `}</style>
-      </head>
-
-      <body>
+      <div className="receipt">
         <div className="center title">夜店義大利麵</div>
 
         <div className="center meta">
@@ -145,27 +72,23 @@ export default async function PrintOrderPage({
 
         <div className="divider" />
 
-        {itemsWithName.map((item: any) => (
-          <div key={item.id} className="row">
-            <span className="left">
-              {item.name} x{Number(item.qty || 0)}
-            </span>
-            <span className="right">
-              NT$ {Number(item.price || 0) * Number(item.qty || 0)}
-            </span>
+        {groupedItems.map((item, index) => (
+          <div key={`${item.name}-${index}`} className="row">
+            <span>{item.name} x{item.qty}</span>
+            <span>NT$ {item.unitPrice * item.qty}</span>
           </div>
         ))}
 
         <div className="divider" />
 
         <div className="row total">
-          <span className="left">總計</span>
-          <span className="right">NT$ {order?.total ?? 0}</span>
+          <span>總計</span>
+          <span>NT$ {order?.total ?? 0}</span>
         </div>
 
         <div className="divider" />
 
-        <div className="meta muted">
+        <div className="meta">
           <div>付款方式：{order?.payment_method || '-'}</div>
           <div>實收：NT$ {order?.received_amount ?? 0}</div>
           <div>找零：NT$ {order?.change_amount ?? 0}</div>
@@ -175,21 +98,60 @@ export default async function PrintOrderPage({
           <div>THANK YOU</div>
           <div>歡迎再次光臨</div>
         </div>
+      </div>
 
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              setTimeout(() => {
-                window.print();
-              }, 300);
+      <style>{`
+        @page {
+          size: 80mm auto;
+          margin: 0;
+        }
 
-              window.onafterprint = () => {
-                window.close();
-              };
-            `,
-          }}
-        />
-      </body>
-    </html>
+        body {
+          margin: 0;
+          font-family: monospace;
+        }
+
+        .receipt {
+          width: 80mm;
+          padding: 4mm;
+        }
+
+        .center {
+          text-align: center;
+        }
+
+        .title {
+          font-size: 18px;
+          font-weight: bold;
+        }
+
+        .meta {
+          font-size: 12px;
+        }
+
+        .divider {
+          border-top: 1px dashed #000;
+          margin: 8px 0;
+        }
+
+        .row {
+          display: flex;
+          justify-content: space-between;
+          font-size: 13px;
+          line-height: 1.8;
+        }
+
+        .total {
+          font-size: 16px;
+          font-weight: bold;
+        }
+
+        .footer {
+          text-align: center;
+          margin-top: 10px;
+          font-size: 12px;
+        }
+      `}</style>
+    </>
   )
 }
