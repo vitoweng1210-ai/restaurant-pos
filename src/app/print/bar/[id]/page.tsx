@@ -1,48 +1,83 @@
 import { createClient } from '@/lib/supabase/server'
 import AutoPrint from '@/components/print/AutoPrint'
 
-function normalizeText(value: string | null | undefined) {
-  return String(value || '').toLowerCase()
+type PrintPageProps = {
+  params: Promise<{ id: string }>
+  searchParams?: Promise<{ itemids?: string }>
 }
 
-function isBarText(textValue: string | null | undefined) {
-  const text = normalizeText(textValue)
-
-  return (
-    text.includes('飲') ||
-    text.includes('甜') ||
-    text.includes('drink') ||
-    text.includes('dessert') ||
-    text.includes('bar') ||
-    text.includes('tea') ||
-    text.includes('coffee') ||
-    text.includes('紅茶') ||
-    text.includes('綠茶') ||
-    text.includes('奶茶') ||
-    text.includes('咖啡') ||
-    text.includes('可樂') ||
-    text.includes('雪碧') ||
-    text.includes('汽水') ||
-    text.includes('果汁') ||
-    text.includes('冰沙') ||
-    text.includes('甜點') ||
-    text.includes('蛋糕')
-  )
+type OrderItemRow = {
+  id: string
+  order_id: string
+  menu_id: string
+  quantity: number
+  note?: string | null
+  created_at?: string | null
 }
 
-function isBarItemName(menuName: string | null | undefined, categoryName: string | null | undefined) {
-  return isBarText(categoryName) || isBarText(menuName)
+type MenuRow = {
+  id: string
+  name: string
+  station?: string | null
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return ''
+  const d = new Date(value)
+  return d.toLocaleString('zh-TW', {
+    hour12: false,
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function groupItems(
+  items: Array<{
+    id: string
+    name: string
+    quantity: number
+    note?: string | null
+  }>
+) {
+  const map = new Map<
+    string,
+    {
+      name: string
+      quantity: number
+      note?: string | null
+    }
+  >()
+
+  for (const item of items) {
+    const key = `${item.name}__${item.note || ''}`
+    const found = map.get(key)
+    if (found) {
+      found.quantity += item.quantity
+    } else {
+      map.set(key, {
+        name: item.name,
+        quantity: item.quantity,
+        note: item.note || '',
+      })
+    }
+  }
+
+  return Array.from(map.values())
 }
 
 export default async function PrintBarPage({
   params,
   searchParams,
-}: {
-  params: Promise<{ id: string }>
-  searchParams: Promise<{ itemIds?: string }>
-}) {
+}: PrintPageProps) {
   const { id } = await params
-  const { itemIds } = await searchParams
+  const sp = searchParams ? await searchParams : {}
+  const itemIds = (sp?.itemids || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+
   const supabase = await createClient()
 
   const { data: order } = await supabase
@@ -51,166 +86,150 @@ export default async function PrintBarPage({
     .eq('id', id)
     .single()
 
-  const { data: items } = await supabase
+  const { data: orderItems } = await supabase
     .from('order_items')
     .select('*')
     .eq('order_id', id)
+    .order('id', { ascending: true })
 
-  const { data: menu } = await supabase.from('menu').select('*')
-  const { data: categories } = await supabase.from('categories').select('*')
+  const menuIds = [...new Set((orderItems || []).map((x: OrderItemRow) => x.menu_id))]
+
+  const { data: menuRows } = await supabase
+    .from('menu')
+    .select('id,name,station')
+    .in('id', menuIds.length > 0 ? menuIds : ['__never__'])
 
   const { data: table } = await supabase
     .from('tables')
-    .select('id, name')
+    .select('id,name')
     .eq('id', order?.table_id)
     .maybeSingle()
 
-  const allItems = items || []
+  const menuMap = new Map(
+  ((menuRows || []) as MenuRow[]).map((m) => [
+    m.id,
+    {
+      name: m.name,
+      station: m.station || 'main',
+    },
+  ])
+)
 
-  const filterIds = (itemIds || '')
-    .split(',')
-    .map((x) => x.trim())
-    .filter(Boolean)
-
-  let filteredItems = allItems
-
-  if (filterIds.length > 0) {
-    const matchedItems = allItems.filter((item: any) => filterIds.includes(item.id))
-
-    if (matchedItems.length > 0) {
-      filteredItems = matchedItems
-    } else {
-      filteredItems = allItems.slice(-filterIds.length)
-    }
-  }
-
-  const itemsWithName = filteredItems
-    .map((item: any) => {
-      const m = menu?.find((x: any) => x.id === item.menu_id)
-      const category = categories?.find((x: any) => x.id === m?.category_id)
-
+  const filtered = ((orderItems || []) as OrderItemRow[])
+  .filter((item) => {
+    if (itemIds.length > 0 && !itemIds.includes(String(item.id))) return false
+    const menu = menuMap.get(item.menu_id)
+    const station = (menu?.station || 'main').trim().toLowerCase()
+    return station === 'dessert_drink'
+  })
+    .map((item) => {
+      const menu = menuMap.get(item.menu_id)
       return {
-        ...item,
-        name: m?.name || '未知商品',
-        categoryName: category?.name || '',
+        id: String(item.id),
+        name: menu?.name || '未知商品',
+        quantity: item.quantity,
+        note: item.note || '',
       }
     })
-    .filter((item: any) => isBarItemName(item.name, item.categoryName))
+
+  const groupedItems = groupItems(filtered)
+  const printTime = order?.kds_sent_at || order?.created_at
+
   return (
     <>
       <AutoPrint />
-
-      <div className="ticket">
-        <div className="title">吧台出單</div>
-
-        <div className="subTitle">
-          {filterIds.length > 0 ? '加點單' : '完整單'}
-        </div>
-
-        <div className="meta">
-          <div>站台：吧台</div>
-          <div>桌號：{table?.name || '外帶'}</div>
-          <div>訂單：{order?.id?.slice(0, 8) || '-'}</div>
-          <div>
-            時間：
-            {order?.created_at
-              ? new Date(order.created_at).toLocaleString()
-              : '-'}
-          </div>
-        </div>
-
-        <div className="divider" />
-
-        {itemsWithName.length > 0 ? (
-          itemsWithName.map((item: any) => (
-            <div key={item.id} className="itemRow">
-              <span className="itemName">{item.name}</span>
-              <span className="itemQty">x{Number(item.qty || 0)}</span>
-            </div>
-          ))
-        ) : (
-          <div className="empty">本次沒有吧台品項</div>
-        )}
-
-        <div className="divider" />
-        <div className="notice">請儘速製作</div>
-      </div>
-
       <style>{`
         @page {
           size: 80mm auto;
-          margin: 0;
+          margin: 4mm;
         }
-
-        body {
+        html, body {
           margin: 0;
-          font-family: monospace;
-          background: white;
+          padding: 0;
+          font-family: Arial, "Noto Sans TC", sans-serif;
+          font-size: 12px;
           color: #000;
+          background: #fff;
         }
-
         .ticket {
-          width: 80mm;
-          box-sizing: border-box;
-          padding: 4mm;
+          width: 72mm;
+          margin: 0 auto;
+          padding: 2mm 0;
         }
-
+        .center { text-align: center; }
         .title {
-          text-align: center;
-          font-size: 20px;
-          font-weight: bold;
-          margin-bottom: 8px;
-          letter-spacing: 1px;
+          font-size: 18px;
+          font-weight: 700;
+          margin-bottom: 4px;
         }
-
-        .subTitle {
-          text-align: center;
-          font-size: 12px;
-          font-weight: bold;
-          margin-bottom: 8px;
-        }
-
-        .meta {
-          font-size: 12px;
-          line-height: 1.6;
-        }
-
-        .divider {
+        .line {
           border-top: 1px dashed #000;
-          margin: 10px 0;
+          margin: 6px 0;
         }
-
-        .itemRow {
-          font-size: 16px;
-          line-height: 1.8;
-          font-weight: bold;
+        .row {
           display: flex;
           justify-content: space-between;
           gap: 8px;
+          margin: 2px 0;
         }
-
-        .itemName {
-          flex: 1;
+        .item {
+          margin: 8px 0;
+        }
+        .item-name {
+          font-size: 16px;
+          font-weight: 700;
+          line-height: 1.4;
           word-break: break-word;
         }
-
-        .itemQty {
-          min-width: 40px;
-          text-align: right;
+        .qty {
+          font-size: 16px;
+          font-weight: 700;
+          white-space: nowrap;
+          margin-left: 8px;
         }
-
-        .notice {
-          margin-top: 12px;
+        .note {
+          margin-top: 2px;
+          padding-left: 8px;
           font-size: 12px;
-          text-align: center;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
-
-        .empty {
-          text-align: center;
-          font-size: 13px;
-          padding: 12px 0;
+        .meta {
+          font-size: 12px;
+          line-height: 1.5;
         }
       `}</style>
+
+      <main className="ticket">
+        <div className="center">
+          <div className="title">吧台單</div>
+          <div>桌號：{table?.name || '外帶'}</div>
+          <div>訂單：{order?.id}</div>
+          <div>時間：{formatTime(printTime)}</div>
+        </div>
+
+        <div className="line" />
+
+        {groupedItems.length === 0 ? (
+          <div className="center">本次無吧台品項</div>
+        ) : (
+          groupedItems.map((item, index) => (
+            <div className="item" key={`${item.name}-${item.note}-${index}`}>
+              <div className="row">
+                <div className="item-name">{item.name}</div>
+                <div className="qty">x{item.quantity}</div>
+              </div>
+              {item.note ? <div className="note">備註：{item.note}</div> : null}
+            </div>
+          ))
+        )}
+
+        <div className="line" />
+
+        <div className="meta">
+          <div>類型：{itemIds.length > 0 ? '加點單' : '整單'}</div>
+        </div>
+      </main>
     </>
   )
 }

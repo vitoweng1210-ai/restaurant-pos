@@ -1,108 +1,64 @@
 import { createClient } from '@/lib/supabase/server'
 import AutoPrint from '@/components/print/AutoPrint'
 
-type PageProps = {
+type PrintPageProps = {
   params: Promise<{ id: string }>
-  searchParams: Promise<{ item_ids?: string }>
-}
-
-type OrderRow = {
-  id: string
-  table_id: string | null
-  created_at: string | null
-  status: string | null
+  searchParams?: Promise<{ item_ids?: string }>
 }
 
 type OrderItemRow = {
   id: string
   order_id: string
-  menu_id: string | null
-  qty: number | null
-  price: number | null
+  menu_id: string
+  quantity: number
+  note?: string | null
+  created_at?: string | null
 }
 
 type MenuRow = {
   id: string
   name: string
   station?: string | null
-  category_id?: string | null
 }
 
-type CategoryRow = {
-  id: string
-  name: string
-}
-
-const DRINK_DESSERT_KEYWORDS = [
-  '飲',
-  '甜',
-  'drink',
-  'dessert',
-  'bar',
-  'tea',
-  'coffee',
-  '紅茶',
-  '綠茶',
-  '奶茶',
-  '咖啡',
-  '可樂',
-  '雪碧',
-  '汽水',
-  '果汁',
-  '冰沙',
-  '甜點',
-  '蛋糕',
-]
-
-function formatDateTime(value?: string | null) {
+function formatTime(value?: string | null) {
   if (!value) return ''
   const d = new Date(value)
-  return new Intl.DateTimeFormat('zh-TW', {
-    year: 'numeric',
+  return d.toLocaleString('zh-TW', {
+    hour12: false,
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
-    hour12: false,
-  }).format(d)
+  })
 }
 
-function isBarItem(name?: string | null, categoryName?: string | null, station?: string | null) {
-  const rawStation = (station || '').toLowerCase().trim()
-
-  if (
-    rawStation === 'dessert_drink' ||
-    rawStation === 'dessert-drink' ||
-    rawStation === 'drink' ||
-    rawStation === 'dessert' ||
-    rawStation === 'bar'
-  ) {
-    return true
-  }
-
-  if (rawStation === 'main' || rawStation === 'side') {
-    return false
-  }
-
-  const text = `${name || ''} ${categoryName || ''}`.toLowerCase()
-  return DRINK_DESSERT_KEYWORDS.some((keyword) => text.includes(keyword.toLowerCase()))
-}
-
-function mergeItems(
-  items: Array<{ id: string; name: string; qty: number; note?: string | null }>
+function groupItems(
+  items: Array<{
+    id: string
+    name: string
+    quantity: number
+    note?: string | null
+  }>
 ) {
-  const map = new Map<string, { name: string; qty: number; note?: string | null }>()
+  const map = new Map<
+    string,
+    {
+      name: string
+      quantity: number
+      note?: string | null
+    }
+  >()
 
   for (const item of items) {
     const key = `${item.name}__${item.note || ''}`
     const found = map.get(key)
-
     if (found) {
-      found.qty += item.qty
+      found.quantity += item.quantity
     } else {
       map.set(key, {
         name: item.name,
-        qty: item.qty,
+        quantity: item.quantity,
         note: item.note || '',
       })
     }
@@ -111,253 +67,169 @@ function mergeItems(
   return Array.from(map.values())
 }
 
-function TicketSection({
-  title,
-  tableName,
-  orderId,
-  createdAt,
-  items,
-}: {
-  title: string
-  tableName: string
-  orderId: string
-  createdAt: string
-  items: Array<{ name: string; qty: number; note?: string | null }>
-}) {
-  const merged = mergeItems(items)
-
-  if (!merged.length) return null
-
-  return (
-    <section className="ticket-page">
-      <div className="ticket-title">{title}</div>
-      <div className="divider" />
-      <div>桌位：{tableName}</div>
-      <div>訂單：{orderId}</div>
-      <div>時間：{createdAt}</div>
-      <div className="divider" />
-
-      {merged.map((item, index) => (
-        <div key={`${item.name}-${index}`} className="item-row">
-          <div className="item-name">
-            {item.name}
-            {item.note ? <div className="item-note">備註：{item.note}</div> : null}
-          </div>
-          <div className="item-qty">x{item.qty}</div>
-        </div>
-      ))}
-    </section>
-  )
-}
-
-export default async function PrintDispatchPage({
+export default async function PrintKitchenPage({
   params,
   searchParams,
-}: PageProps) {
+}: PrintPageProps) {
   const { id } = await params
-  const sp = await searchParams
+  const sp = searchParams ? await searchParams : {}
+  const itemIds = (sp?.item_ids || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+
   const supabase = await createClient()
 
-  const itemIds =
-    sp.item_ids
-      ?.split(',')
-      .map((x) => x.trim())
-      .filter(Boolean) || []
-
-  const { data: order, error: orderError } = await supabase
+  const { data: order } = await supabase
     .from('orders')
-    .select('id, table_id, created_at, status')
+    .select('*')
     .eq('id', id)
-    .single<OrderRow>()
+    .single()
 
-  if (orderError || !order) {
-    return <div>找不到訂單</div>
-  }
+  const { data: orderItems } = await supabase
+    .from('order_items')
+    .select('*')
+    .eq('order_id', id)
+    .order('id', { ascending: true })
+
+  const menuIds = [...new Set((orderItems || []).map((x: OrderItemRow) => x.menu_id))]
+
+  const { data: menuRows } = await supabase
+    .from('menu')
+    .select('id,name,station')
+    .in('id', menuIds.length > 0 ? menuIds : ['__never__'])
 
   const { data: table } = await supabase
     .from('tables')
     .select('id,name')
-    .eq('id', order.table_id)
+    .eq('id', order?.table_id)
     .maybeSingle()
 
-  let itemsQuery = supabase
-    .from('order_items')
-    .select('id, order_id, menu_id, qty, price')
-    .eq('order_id', id)
+  const menuMap = new Map(
+  ((menuRows || []) as MenuRow[]).map((m) => [
+    m.id,
+    {
+      name: m.name,
+      station: m.station || 'main',
+    },
+  ])
+)
 
-  if (itemIds.length > 0) {
-    itemsQuery = itemsQuery.in('id', itemIds)
-  }
+  const filtered = ((orderItems || []) as OrderItemRow[])
+  .filter((item) => {
+    if (itemIds.length > 0 && !itemIds.includes(String(item.id))) return false
+    const menu = menuMap.get(item.menu_id)
+    const station = (menu?.station || 'main').trim().toLowerCase()
+    return station === 'main' || station === 'side'
+  })
+    .map((item) => {
+      const menu = menuMap.get(item.menu_id)
+      return {
+        id: String(item.id),
+        name: menu?.name || '未知商品',
+        quantity: item.quantity,
+        note: item.note || '',
+      }
+    })
 
-  const { data: orderItems } = await itemsQuery
-
-  const menuIds = (orderItems || [])
-    .map((item) => item.menu_id)
-    .filter(Boolean) as string[]
-
-  const { data: menuRows } =
-    menuIds.length > 0
-      ? await supabase
-          .from('menu')
-          .select('id,name,station,category_id')
-          .in('id', menuIds)
-      : { data: [] as MenuRow[] }
-
-  const categoryIds = Array.from(
-    new Set(
-      (menuRows || [])
-        .map((m) => m.category_id)
-        .filter(Boolean)
-    )
-  ) as string[]
-
-  const { data: categoryRows } =
-    categoryIds.length > 0
-      ? await supabase
-          .from('categories')
-          .select('id,name')
-          .in('id', categoryIds)
-      : { data: [] as CategoryRow[] }
-
-  const menuMap = new Map((menuRows || []).map((m: any) => [m.id, m as MenuRow]))
-  const categoryMap = new Map((categoryRows || []).map((c: any) => [c.id, c as CategoryRow]))
-
-  const kitchenItems: Array<{ id: string; name: string; qty: number; note?: string | null }> = []
-  const barItems: Array<{ id: string; name: string; qty: number; note?: string | null }> = []
-
-  for (const item of orderItems || []) {
-    const menu = item.menu_id ? menuMap.get(item.menu_id) : null
-    const category = menu?.category_id ? categoryMap.get(menu.category_id) : null
-
-    const normalized = {
-      id: item.id,
-      name: menu?.name || '未知品項',
-      qty: item.qty || 0,
-      note: '',
-    }
-
-    if (isBarItem(menu?.name, category?.name, menu?.station)) {
-      barItems.push(normalized)
-    } else {
-      kitchenItems.push(normalized)
-    }
-  }
-
-  const tableName = table?.name || '未指定桌位'
-  const createdAt = formatDateTime(order.created_at)
+  const groupedItems = groupItems(filtered)
+  const printTime = order?.kds_sent_at || order?.created_at
 
   return (
     <>
       <AutoPrint />
+      <style>{`
+        @page {
+          size: 80mm auto;
+          margin: 4mm;
+        }
+        html, body {
+          margin: 0;
+          padding: 0;
+          font-family: Arial, "Noto Sans TC", sans-serif;
+          font-size: 12px;
+          color: #000;
+          background: #fff;
+        }
+        .ticket {
+          width: 72mm;
+          margin: 0 auto;
+          padding: 2mm 0;
+        }
+        .center { text-align: center; }
+        .title {
+          font-size: 18px;
+          font-weight: 700;
+          margin-bottom: 4px;
+        }
+        .line {
+          border-top: 1px dashed #000;
+          margin: 6px 0;
+        }
+        .row {
+          display: flex;
+          justify-content: space-between;
+          gap: 8px;
+          margin: 2px 0;
+        }
+        .item {
+          margin: 8px 0;
+        }
+        .item-name {
+          font-size: 16px;
+          font-weight: 700;
+          line-height: 1.4;
+          word-break: break-word;
+        }
+        .qty {
+          font-size: 16px;
+          font-weight: 700;
+          white-space: nowrap;
+          margin-left: 8px;
+        }
+        .note {
+          margin-top: 2px;
+          padding-left: 8px;
+          font-size: 12px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+        .meta {
+          font-size: 12px;
+          line-height: 1.5;
+        }
+      `}</style>
 
-      <html>
-        <head>
-          <title>站台出單</title>
-          <style>{`
-            @page {
-              size: 80mm auto;
-              margin: 4mm;
-            }
+      <main className="ticket">
+        <div className="center">
+          <div className="title">廚房單</div>
+          <div>桌號：{table?.name || '外帶'}</div>
+          <div>訂單：{order?.id}</div>
+          <div>時間：{formatTime(printTime)}</div>
+        </div>
 
-            html, body {
-              padding: 0;
-              margin: 0;
-              font-family: Arial, "Noto Sans TC", sans-serif;
-              font-size: 12px;
-              color: #000;
-              background: #fff;
-            }
+        <div className="line" />
 
-            .ticket-page {
-              width: 72mm;
-              margin: 0 auto;
-              padding: 0;
-              page-break-after: always;
-            }
+        {groupedItems.length === 0 ? (
+          <div className="center">本次無廚房品項</div>
+        ) : (
+          groupedItems.map((item, index) => (
+            <div className="item" key={`${item.name}-${item.note}-${index}`}>
+              <div className="row">
+                <div className="item-name">{item.name}</div>
+                <div className="qty">x{item.quantity}</div>
+              </div>
+              {item.note ? <div className="note">備註：{item.note}</div> : null}
+            </div>
+          ))
+        )}
 
-            .ticket-page:last-child {
-              page-break-after: auto;
-            }
+        <div className="line" />
 
-            .ticket-title {
-              text-align: center;
-              font-size: 20px;
-              font-weight: 700;
-              margin-bottom: 6px;
-            }
-
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 8px 0;
-            }
-
-            .item-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: flex-start;
-              gap: 8px;
-              margin-bottom: 8px;
-            }
-
-            .item-name {
-              flex: 1;
-              font-size: 16px;
-              font-weight: 700;
-              word-break: break-word;
-            }
-
-            .item-note {
-              margin-top: 2px;
-              font-size: 11px;
-              font-weight: 400;
-            }
-
-            .item-qty {
-              width: 48px;
-              text-align: right;
-              font-size: 16px;
-              font-weight: 700;
-            }
-
-            @media print {
-              .ticket-page {
-                break-after: page;
-              }
-
-              .ticket-page:last-child {
-                break-after: auto;
-              }
-            }
-          `}</style>
-        </head>
-        <body>
-          {kitchenItems.length > 0 ? (
-            <TicketSection
-              title="廚房單"
-              tableName={tableName}
-              orderId={order.id}
-              createdAt={createdAt}
-              items={kitchenItems}
-            />
-          ) : null}
-
-          {barItems.length > 0 ? (
-            <TicketSection
-              title="吧台單"
-              tableName={tableName}
-              orderId={order.id}
-              createdAt={createdAt}
-              items={barItems}
-            />
-          ) : null}
-
-          {kitchenItems.length === 0 && barItems.length === 0 ? (
-            <section className="ticket-page">
-              <div className="ticket-title">無可列印品項</div>
-            </section>
-          ) : null}
-        </body>
-      </html>
+        <div className="meta">
+          <div>類型：{itemIds.length > 0 ? '加點單' : '整單'}</div>
+        </div>
+      </main>
     </>
   )
 }

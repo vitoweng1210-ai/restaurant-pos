@@ -279,116 +279,123 @@ export default async function PrintDispatchPage({
     <>
       <AutoPrint />
 
-      <html>
-        <head>
-          <title>站台出單</title>
-          <style>{`
-            @page {
-              size: 80mm auto;
-              margin: 4mm;
-            }
+      <style>{`
+        @page {
+          size: 80mm auto;
+          margin: 4mm;
+        }
 
-            html, body {
-              padding: 0;
-              margin: 0;
-              font-family: Arial, "Noto Sans TC", sans-serif;
-              font-size: 12px;
-              color: #000;
-              background: #fff;
-              zoom: 1.25;
-            }
+        html, body {
+          padding: 0;
+          margin: 0;
+          font-family: Arial, "Noto Sans TC", sans-serif;
+          font-size: 12px;
+          color: #000;
+          background: #fff;
+          zoom: 1.25;
+        }
 
-            .ticket-page {
-              width: 72mm;
-              max-width: 72mm;
-              margin: 0 auto;
-              padding: 0;
-              page-break-after: always;
-            }
+        .print-root {
+          padding: 0;
+          margin: 0;
+          background: #fff;
+        }
 
-            .ticket-page:last-child {
-              page-break-after: auto;
-            }
+        .ticket-page {
+          width: 72mm;
+          max-width: 72mm;
+          margin: 0 auto;
+          padding: 0;
+          page-break-after: always;
+        }
 
-            .ticket-title {
-              text-align: center;
-              font-size: 20px;
-              font-weight: 700;
-              margin-bottom: 6px;
-            }
+        .ticket-page:last-child {
+          page-break-after: auto;
+        }
 
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 8px 0;
-            }
+        .ticket-title {
+          text-align: center;
+          font-size: 20px;
+          font-weight: 700;
+          margin-bottom: 6px;
+        }
 
-            .item-row {
-              display: flex;
-              justify-content: space-between;
-              align-items: flex-start;
-              gap: 8px;
-              margin-bottom: 8px;
-            }
+        .divider {
+          border-top: 1px dashed #000;
+          margin: 8px 0;
+        }
 
-            .item-name {
-              flex: 1;
-              font-size: 16px;
-              font-weight: 700;
-              word-break: break-word;
-            }
+        .item-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 8px;
+          margin-bottom: 8px;
+        }
 
-            .item-note {
-              margin-top: 2px;
-              font-size: 11px;
-              font-weight: 400;
-            }
+        .item-name {
+          flex: 1;
+          font-size: 16px;
+          font-weight: 700;
+          word-break: break-word;
+        }
 
-            .item-qty {
-              width: 48px;
-              text-align: right;
-              font-size: 16px;
-              font-weight: 700;
-            }
+        .item-note {
+          margin-top: 2px;
+          font-size: 11px;
+          font-weight: 400;
+        }
 
-            @media print {
-              .ticket-page {
-                break-after: page;
-              }
+        .item-qty {
+          width: 48px;
+          text-align: right;
+          font-size: 16px;
+          font-weight: 700;
+        }
 
-              .ticket-page:last-child {
-                break-after: auto;
-              }
-            }
-          `}</style>
-        </head>
-        <body>
-          {kitchenItems.length > 0 ? (
-            <TicketSection
-              title="廚房單"
-              tableName={tableName}
-              orderId={order.id}
-              createdAt={createdAt}
-              items={kitchenItems}
-            />
-          ) : null}
+        @media print {
+          .print-root {
+            padding: 0;
+            margin: 0;
+          }
 
-          {barItems.length > 0 ? (
-            <TicketSection
-              title="吧台單"
-              tableName={tableName}
-              orderId={order.id}
-              createdAt={createdAt}
-              items={barItems}
-            />
-          ) : null}
+          .ticket-page {
+            break-after: page;
+          }
 
-          {kitchenItems.length === 0 && barItems.length === 0 && (
-            <section className="ticket-page">
-              <div className="ticket-title">無可列印品項</div>
-            </section>
-          )}
-        </body>
-      </html>
+          .ticket-page:last-child {
+            break-after: auto;
+          }
+        }
+      `}</style>
+
+      <main className="print-root">
+        {kitchenItems.length > 0 ? (
+          <TicketSection
+            title="廚房單"
+            tableName={tableName}
+            orderId={order.id}
+            createdAt={createdAt}
+            items={kitchenItems}
+          />
+        ) : null}
+
+        {barItems.length > 0 ? (
+          <TicketSection
+            title="吧台單"
+            tableName={tableName}
+            orderId={order.id}
+            createdAt={createdAt}
+            items={barItems}
+          />
+        ) : null}
+
+        {kitchenItems.length === 0 && barItems.length === 0 && (
+          <section className="ticket-page">
+            <div className="ticket-title">無可列印品項</div>
+          </section>
+        )}
+      </main>
     </>
   )
 }

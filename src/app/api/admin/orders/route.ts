@@ -8,6 +8,7 @@ type OrderRow = {
   table_id: string | null
   status: string | null
   created_at: string | null
+  kds_sent_at: string | null
   total: number | null
   payment_method: string | null
   paid_at: string | null
@@ -24,6 +25,19 @@ type OrderItemRow = {
   menu_id: string | null
   qty: number | null
   price: number | null
+  batch_id: string | null
+}
+
+type OrderBatchRow = {
+  id: string
+  order_id: string
+  batch_no: number
+  created_at: string | null
+  printed_at: string | null
+  status: string | null
+  started_at: string | null
+  ready_at: string | null
+  served_at: string | null
 }
 
 type MenuRow = {
@@ -109,25 +123,17 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url)
 
     const view = searchParams.get('view') || 'all'
+    const batchStatusFilter =
+      view === 'open'
+        ? ['new', 'preparing', 'ready']
+        : view === 'paid'
+        ? ['served']
+        : null
 
-    let statusFilter: string[] | null = null
-
-    if (view === 'open') {
-      statusFilter = ['new', 'preparing', 'ready', 'served']
-    } else if (view === 'paid') {
-      statusFilter = ['paid']
-    }
-
-    let ordersQuery = supabase
+    const { data: ordersData, error: ordersError } = await supabase
       .from('orders')
-      .select('id, table_id, status, created_at, total, payment_method, paid_at')
+      .select('id, table_id, status, created_at, kds_sent_at, total, payment_method, paid_at')
       .order('created_at', { ascending: false })
-
-    if (statusFilter) {
-      ordersQuery = ordersQuery.in('status', statusFilter)
-    }
-
-    const { data: ordersData, error: ordersError } = await ordersQuery
 
     if (ordersError) {
       return NextResponse.json(
@@ -143,13 +149,32 @@ export async function GET(req: NextRequest) {
     }
 
     const orderIds = orders.map((o) => o.id)
-    const tableIds = Array.from(
-      new Set(orders.map((o) => o.table_id).filter(Boolean))
-    ) as string[]
+    const tableIds = Array.from(new Set(orders.map((o) => o.table_id).filter(Boolean))) as string[]
+
+    let batchQuery = supabase
+      .from('order_batches')
+      .select('id, order_id, batch_no, created_at, printed_at, status, started_at, ready_at, served_at')
+      .in('order_id', orderIds)
+      .order('created_at', { ascending: false })
+
+    if (batchStatusFilter) {
+      batchQuery = batchQuery.in('status', batchStatusFilter)
+    }
+
+    const { data: batchData, error: batchError } = await batchQuery
+
+    if (batchError) {
+      return NextResponse.json(
+        { error: `讀取 order_batches 失敗：${batchError.message}` },
+        { status: 500 }
+      )
+    }
+
+    const batches = (batchData || []) as OrderBatchRow[]
 
     const { data: orderItemsData, error: orderItemsError } = await supabase
       .from('order_items')
-      .select('id, order_id, menu_id, qty, price')
+      .select('id, order_id, menu_id, qty, price, batch_id')
       .in('order_id', orderIds)
 
     if (orderItemsError) {
@@ -226,7 +251,9 @@ export async function GET(req: NextRequest) {
       tableMap = new Map((tablesData || []).map((row: any) => [row.id, row as TableRow]))
     }
 
-    const itemsByOrderId = new Map<
+    const orderMap = new Map(orders.map((order) => [order.id, order]))
+
+    const itemsByBatchId = new Map<
       string,
       Array<{
         id: string
@@ -239,6 +266,8 @@ export async function GET(req: NextRequest) {
     >()
 
     for (const item of orderItems) {
+      if (!item.batch_id) continue
+
       const menu = item.menu_id ? menuMap.get(item.menu_id) : null
       const category = menu?.category_id ? categoryMap.get(menu.category_id) : null
 
@@ -251,24 +280,35 @@ export async function GET(req: NextRequest) {
         station: normalizeStation(menu?.station, menu?.name, category?.name),
       }
 
-      const current = itemsByOrderId.get(item.order_id) || []
+      const current = itemsByBatchId.get(item.batch_id) || []
       current.push(normalizedItem)
-      itemsByOrderId.set(item.order_id, current)
+      itemsByBatchId.set(item.batch_id, current)
     }
 
-    const result = orders.map((order) => ({
-      id: order.id,
-      table_id: order.table_id,
-      table_name: order.table_id
-        ? tableMap.get(order.table_id)?.name || '未指定桌位'
-        : '未指定桌位',
-      status: normalizeStatus(order.status) || 'new',
-      created_at: order.created_at,
-      total: order.total || 0,
-      payment_method: order.payment_method,
-      paid_at: order.paid_at,
-      items: itemsByOrderId.get(order.id) || [],
-    }))
+    const result = batches
+      .map((batch) => {
+        const order = orderMap.get(batch.order_id)
+        if (!order) return null
+
+        return {
+          id: batch.id,
+          order_id: order.id,
+          batch_id: batch.id,
+          batch_no: batch.batch_no,
+          table_id: order.table_id,
+          table_name: order.table_id
+            ? tableMap.get(order.table_id)?.name || '未指定桌位'
+            : '未指定桌位',
+          status: normalizeStatus(batch.status) || 'new',
+          created_at: batch.created_at || order.kds_sent_at || order.created_at,
+          kds_sent_at: batch.created_at || order.kds_sent_at || order.created_at,
+          total: order.total || 0,
+          payment_method: order.payment_method,
+          paid_at: order.paid_at,
+          items: itemsByBatchId.get(batch.id) || [],
+        }
+      })
+      .filter((row): row is NonNullable<typeof row> => Boolean(row && row.items.length > 0))
 
     return NextResponse.json(result)
   } catch (error: any) {

@@ -12,6 +12,7 @@ import TableSidebar from '@/components/pos/TableSidebar'
 import MenuGrid from '@/components/pos/MenuGrid'
 import OrderPanel from '@/components/pos/OrderPanel'
 import PaymentDrawer from '@/components/pos/PaymentDrawer'
+import { useToast } from '@/components/ui/ToastProvider'
 
 export type CartItem = {
   menu_id: string
@@ -34,6 +35,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
   const [submitting, setSubmitting] = useState(false)
   const [paying, setPaying] = useState(false)
   const initializedRef = useRef(false)
+  const { showToast } = useToast()
 
   const [paymentOpen, setPaymentOpen] = useState(false)
   const [serviceChargeEnabled, setServiceChargeEnabled] = useState(true)
@@ -210,12 +212,12 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
 
   async function submitOrder() {
     if (!selectedTableId) {
-      alert('請先選擇桌位')
+      showToast('請先選擇桌位', 'error')
       return
     }
 
     if (!cart.length) {
-      alert('請先加入商品')
+      showToast('請先加入商品', 'error')
       return
     }
 
@@ -244,11 +246,11 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
 
       if (!res.ok) {
         if (printWindow) printWindow.close()
-        alert(data.error || '送單失敗')
+        showToast(data.error || '送單失敗', 'error')
         return
       }
 
-      alert(currentOrder ? '加點成功' : '送單成功')
+      showToast(currentOrder ? '加點成功' : '送單成功', 'success')
 
       if (data?.id) {
         const itemIds = Array.isArray(data.item_ids)
@@ -271,7 +273,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       await loadCurrentOrder(selectedTableId)
     } catch (error) {
       console.error('送單失敗', error)
-      alert('送單失敗')
+      showToast('送單失敗', 'error')
     } finally {
       setSubmitting(false)
     }
@@ -279,7 +281,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
 
   function openPaymentDrawer() {
     if (!currentOrder?.id) {
-      alert('目前沒有可結帳訂單')
+      showToast('目前沒有可結帳訂單', 'error')
       return
     }
 
@@ -288,7 +290,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
 
   async function payOrder(paymentMethod: string, receivedAmount: number) {
     if (!currentOrder?.id) {
-      alert('目前沒有可結帳訂單')
+      showToast('目前沒有可結帳訂單', 'error')
       return
     }
 
@@ -307,14 +309,14 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       const data = await res.json()
 
       if (!res.ok) {
-        alert(data.error || '結帳失敗')
+        showToast(data.error || '結帳失敗', 'error')
         return
       }
 
       if (paymentMethod === 'cash') {
-        alert(`結帳成功，找零 NT$ ${data.change}`)
+        showToast(data.error || '結帳失敗', 'error')
       } else {
-        alert('結帳成功')
+        showToast('結帳成功', 'success')
       }
 
       setPaymentOpen(false)
@@ -323,7 +325,7 @@ export default function PosShell({ staff }: { staff: SessionStaff }) {
       setCart([])
     } catch (error) {
       console.error('結帳失敗', error)
-      alert('結帳失敗')
+      showToast('結帳失敗', 'error')
     } finally {
       setPaying(false)
     }

@@ -5,19 +5,29 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await context.params
-  const body = await req.json()
+  try {
+    const { id } = await context.params
+    const body = await req.json()
 
-  const supabase = await createClient()
+    const station = body.station
 
-  const { error } = await supabase
-    .from('menu')
-    .update(body)
-    .eq('id', id)
+    if (!station) {
+      return NextResponse.json({ error: '缺少 station' }, { status: 400 })
+    }
 
-  if (error) {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+      .from('menu')
+      .update({ station })
+      .eq('id', id)
+
+    if (error) {
+      return NextResponse.json({ error: '更新失敗' }, { status: 500 })
+    }
+
+    return NextResponse.json({ ok: true })
+  } catch (error) {
     return NextResponse.json({ error: '更新失敗' }, { status: 500 })
   }
-
-  return NextResponse.json({ ok: true })
 }

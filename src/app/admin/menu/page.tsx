@@ -2,12 +2,14 @@
 
 import { useEffect, useState } from 'react'
 
+type MenuStation = 'main' | 'side' | 'dessert_drink'
+
 type MenuRow = {
   id: string
   name: string
   price: number
   category_id: string | null
-  station: 'main' | 'side' | 'dessert_drink' | null
+  station: MenuStation | null
 }
 
 type CategoryRow = {
@@ -15,7 +17,7 @@ type CategoryRow = {
   name: string
 }
 
-const STATION_OPTIONS = [
+const STATION_OPTIONS: Array<{ value: MenuStation; label: string }> = [
   { value: 'main', label: '主餐' },
   { value: 'side', label: '附餐' },
   { value: 'dessert_drink', label: '飲料甜點' },
@@ -51,7 +53,7 @@ export default function AdminMenuPage() {
     load()
   }, [])
 
-  async function updateStation(id: string, station: string) {
+  async function updateStation(id: string, station: MenuStation) {
     try {
       setSavingId(id)
 
@@ -69,9 +71,7 @@ export default function AdminMenuPage() {
       }
 
       setMenu((prev) =>
-        prev.map((item) =>
-          item.id === id ? { ...item, station } : item
-        )
+        prev.map((item) => (item.id === id ? { ...item, station } : item))
       )
     } catch (err) {
       console.error(err)
@@ -91,9 +91,7 @@ export default function AdminMenuPage() {
 
       <div className="grid gap-4">
         {menu.map((item) => {
-          const category = categories.find(
-            (c) => c.id === item.category_id
-          )
+          const category = categories.find((c) => c.id === item.category_id)
 
           return (
             <div
@@ -110,12 +108,9 @@ export default function AdminMenuPage() {
               <div className="flex items-center gap-2">
                 <select
                   value={item.station || 'main'}
-                onChange={(e) =>
-  updateStation(
-    item.id,
-    e.target.value as 'main' | 'side' | 'dessert_drink'
-  )
-}  
+                  onChange={(e) =>
+                    updateStation(item.id, e.target.value as MenuStation)
+                  }
                   className="rounded border px-3 py-2"
                 >
                   {STATION_OPTIONS.map((opt) => (
@@ -126,9 +121,7 @@ export default function AdminMenuPage() {
                 </select>
 
                 {savingId === item.id && (
-                  <span className="text-sm text-gray-500">
-                    儲存中...
-                  </span>
+                  <span className="text-sm text-gray-500">儲存中...</span>
                 )}
               </div>
             </div>
